@@ -8,8 +8,7 @@ import {
 import { SignUpDto } from './dtos/signup.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { Prisma } from '@prisma/client';
-import { LoginDto } from './dtos/login.dto';
+ import { LoginDto } from './dtos/login.dto';
  import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { hashToken } from '../common/utils/hash-token';
