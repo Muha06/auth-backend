@@ -67,7 +67,11 @@ export class AuthService {
     };
   }
 
-  async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    console.log(dto);
+    console.log(typeof dto.oldPassword);
+    console.log(typeof dto.newPassword);
+
     // Find user
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -77,17 +81,14 @@ export class AuthService {
       throw new NotFoundException('User not found');
     }
 
-    if (changePasswordDto.oldPassword === changePasswordDto.newPassword) {
+    if (dto.oldPassword === dto.newPassword) {
       throw new BadRequestException(
         'New password cannot be the same as the old password',
       );
     }
 
     // Compare Old Passwords
-    const matches = await bcrypt.compare(
-      changePasswordDto.oldPassword,
-      user.password,
-    );
+    const matches = await bcrypt.compare(dto.oldPassword, user.password);
 
     if (!matches) {
       throw new UnauthorizedException('Invalid old password');
@@ -100,10 +101,7 @@ export class AuthService {
       );
 
       // Update Password
-      const hashedPassword = await bcrypt.hash(
-        changePasswordDto.newPassword,
-        rounds,
-      );
+      const hashedPassword = await bcrypt.hash(dto.newPassword, rounds);
 
       await prisma.user.update({
         where: { id: userId },
