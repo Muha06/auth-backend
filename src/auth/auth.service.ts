@@ -68,10 +68,6 @@ export class AuthService {
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
-    console.log(dto);
-    console.log(typeof dto.oldPassword);
-    console.log(typeof dto.newPassword);
-
     // Find user
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -91,7 +87,7 @@ export class AuthService {
     const matches = await bcrypt.compare(dto.oldPassword, user.password);
 
     if (!matches) {
-      throw new UnauthorizedException('Invalid old password');
+      throw new BadRequestException('Invalid old password');
     }
 
     // Atomic Transaction: Update Password and Revoke Refresh Tokens
@@ -117,11 +113,10 @@ export class AuthService {
   }
 
   async refresh(refreshToken: string) {
-    // Verify refresh token
-
     let payload;
 
     try {
+      // Verify refresh token
       payload = await this.jwtService.verifyAsync(refreshToken, {
         secret: this.configService.getOrThrow('JWT_REFRESH_SECRET'),
       });
@@ -130,7 +125,7 @@ export class AuthService {
     }
 
     if (payload.type !== 'refresh') {
-      throw new UnauthorizedException('Invalid token');
+      throw new BadRequestException('Expected a refresh token');
     }
 
     // Hash token
@@ -194,8 +189,7 @@ export class AuthService {
         refresh_token: tokens.refreshToken,
       };
     } catch (error) {
-      console.log('Error during refresh token transaction:', error);
-      throw new InternalServerErrorException('Failed to refresh token');
+       throw new InternalServerErrorException('Failed to refresh token');
     }
   }
 
@@ -243,7 +237,14 @@ export class AuthService {
 
     try {
       // Hash password
-      const hashedPassword = await bcrypt.hash(signUpDto.password.trim(), 10);
+      const hashRounds = Number(
+        this.configService.getOrThrow('BCRYPT_SALT_ROUNDS'),
+      );
+
+      const hashedPassword = await bcrypt.hash(
+        signUpDto.password.trim(),
+        hashRounds,
+      );
 
       return await this.prisma.$transaction(async (prisma) => {
         // Create user
@@ -277,8 +278,6 @@ export class AuthService {
         };
       });
     } catch (error: any) {
-      console.log(error);
-
       if (error?.code === 'P2002') {
         throw new ConflictException('Email or username already exists');
       }
@@ -303,14 +302,14 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new BadRequestException('Invalid email or password');
     }
 
     // Compare password
     const matches = await bcrypt.compare(password, user.password);
 
     if (!matches) {
-      throw new UnauthorizedException('Invalid email or password');
+      throw new BadRequestException('Invalid email or password');
     }
 
     // Generate tokens
