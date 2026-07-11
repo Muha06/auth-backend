@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -8,8 +9,8 @@ import {
 import { SignUpDto } from './dtos/signup.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
- import { LoginDto } from './dtos/login.dto';
- import { JwtService } from '@nestjs/jwt';
+import { LoginDto } from './dtos/login.dto';
+import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { hashToken } from '../common/utils/hash-token';
 import { ChangePasswordDto } from './dtos/change-password.dto';
@@ -89,7 +90,7 @@ export class AuthService {
     );
 
     if (!matches) {
-      throw new BadRequestException('Invalid old password');
+      throw new UnauthorizedException('Invalid old password');
     }
 
     // Atomic Transaction: Update Password and Revoke Refresh Tokens
@@ -119,9 +120,16 @@ export class AuthService {
 
   async refresh(refreshToken: string) {
     // Verify refresh token
-    const payload = await this.jwtService.verifyAsync(refreshToken, {
-      secret: this.configService.getOrThrow('JWT_REFRESH_SECRET'),
-    });
+
+    let payload;
+
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.configService.getOrThrow('JWT_REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
 
     if (payload.type !== 'refresh') {
       throw new UnauthorizedException('Invalid token');
@@ -183,26 +191,27 @@ export class AuthService {
         });
       });
 
-      console.log({
-        access_token: tokens.accessToken,
-        ' refresh_token': tokens.refreshToken,
-      });
-
       return {
         access_token: tokens.accessToken,
         refresh_token: tokens.refreshToken,
       };
     } catch (error) {
       console.log('Error during refresh token transaction:', error);
-      return { message: `failed to refresh ${error}` };
+      throw new InternalServerErrorException('Failed to refresh token');
     }
   }
 
   async logout(refreshToken: string) {
     // Verify refresh token
-    const payload = await this.jwtService.verifyAsync(refreshToken, {
-      secret: this.configService.getOrThrow('JWT_REFRESH_SECRET'),
-    });
+    let payload;
+
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.configService.getOrThrow('JWT_REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
 
     if (payload.type !== 'refresh') {
       throw new UnauthorizedException('Invalid token');
@@ -259,7 +268,7 @@ export class AuthService {
           data: {
             userId: user.id,
             tokenHash: hashToken(tokens.refreshToken),
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            expiresAt: this.getRefreshTokenExpiryDate(),
           },
         });
 
@@ -273,7 +282,7 @@ export class AuthService {
       console.log(error);
 
       if (error?.code === 'P2002') {
-        throw new BadRequestException('Email or username already exists');
+        throw new ConflictException('Email or username already exists');
       }
 
       throw new InternalServerErrorException('Something went wrong');
@@ -299,7 +308,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Compare password if user found
+    // Compare password
     const matches = await bcrypt.compare(password, user.password);
 
     if (!matches) {
@@ -310,6 +319,7 @@ export class AuthService {
     const tokens = await this.generateTokens(user.id, user.email);
 
     const expiresAt = this.getRefreshTokenExpiryDate();
+
     // Save refresh token in DB
     await this.prisma.refreshToken.create({
       data: {

@@ -32,8 +32,8 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT) // return 204 No Content
-  async logout(@Body('refreshToken') refreshToken: string): Promise<void> {
-    await this.authService.logout(refreshToken);
+  async logout(@Body('refreshToken') refreshToken: string) {
+    return this.authService.logout(refreshToken);
   }
 
   @Post('refresh') // auth/refresh
@@ -52,7 +52,7 @@ export class AuthController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @Patch('change-password')
   async changePassword(
-    @Req() req, // From the guard
+    @Req() req,
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(req.user.userId, changePasswordDto);
