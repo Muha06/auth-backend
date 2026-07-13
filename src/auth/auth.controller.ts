@@ -14,6 +14,7 @@ import { SignUpDto } from './dtos/signup.dto';
 import { LoginDto } from './dtos/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guards';
 import { ChangePasswordDto } from './dtos/change-password.dto';
+import { ResetPasswordDto } from './dtos/reset_password.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -38,7 +39,6 @@ export class AuthController {
 
   @Post('refresh') // auth/refresh
   async refresh(@Body('refreshToken') refreshToken: string) {
-    console.log('Received refresh token:', refreshToken);
     return this.authService.refresh(refreshToken);
   }
 
@@ -56,5 +56,20 @@ export class AuthController {
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(req.user.userId, changePasswordDto);
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body('email') email: string) {
+    await this.authService.forgotPassword(email);
+
+    return {
+      message:
+        'If an account with that email exists, a password reset link has been sent.',
+    };
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(resetPasswordDto);
   }
 }

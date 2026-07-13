@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { MailModule } from 'src/mail/mail.module';
 
 /// JwtModule -> holds JwtService
 /// factory -> A function that creates something
@@ -28,6 +29,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         },
       }),
     }),
+    MailModule
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

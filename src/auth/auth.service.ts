@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -14,6 +15,9 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { hashToken } from '../common/utils/hash-token';
 import { ChangePasswordDto } from './dtos/change-password.dto';
+import { randomBytes } from 'crypto';
+import { MailService } from 'src/mail/mail.service';
+import { ResetPasswordDto } from './dtos/reset_password.dto';
 
 @Injectable()
 export class AuthService {
@@ -21,7 +25,9 @@ export class AuthService {
     private prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly mailService: MailService,
   ) {}
+  private readonly logger = new Logger(AuthService.name);
 
   private getRefreshTokenExpiryDate(): Date {
     const refreshTokenDays = Number(
@@ -31,6 +37,10 @@ export class AuthService {
     console.log('Refresh token expires in days:', refreshTokenDays);
 
     return new Date(Date.now() + refreshTokenDays * 24 * 60 * 60 * 1000);
+  }
+
+  private createPasswordResetExpiry(): Date {
+    return new Date(Date.now() + 15 * 60 * 1000);
   }
 
   private async generateTokens(userId: string, email: string) {
@@ -189,7 +199,7 @@ export class AuthService {
         refresh_token: tokens.refreshToken,
       };
     } catch (error) {
-       throw new InternalServerErrorException('Failed to refresh token');
+      throw new InternalServerErrorException('Failed to refresh token');
     }
   }
 
@@ -348,5 +358,104 @@ export class AuthService {
 
     const { password, ...safeUser } = user;
     return safeUser;
+  }
+
+  async forgotPassword(email: string) {
+    this.logger.log(email);
+
+    // check email
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      return;
+    }
+
+    const token = randomBytes(32).toString('hex'); // generate token
+    const tokenHash = hashToken(token); // hash token to store
+
+    await this.prisma.$transaction(async (tx) => {
+      // Delete old attempts
+      await tx.passwordResetToken.deleteMany({
+        where: { userId: user.id },
+      });
+
+      // create record
+      await tx.passwordResetToken.create({
+        data: {
+          tokenHash,
+          userId: user.id,
+          expiresAt: this.createPasswordResetExpiry(),
+        },
+      });
+    });
+
+    this.logger.log(token);
+
+    await this.mailService.sendPasswordResetEmail(
+      user.email,
+      user.username,
+      token,
+    );
+  }
+
+  async resetPassword({ newPassword, token }: ResetPasswordDto) {
+    const hashedToken = hashToken(token);
+
+    // Find in DB
+    const record = await this.prisma.passwordResetToken.findUnique({
+      where: {
+        tokenHash: hashedToken,
+      },
+    });
+    if (!record) throw new BadRequestException('Invalid reset token');
+
+    const isExpired = record.expiresAt < new Date();
+
+    if (isExpired) {
+      throw new BadRequestException('Token expired');
+    }
+    // Update password
+    const hashRounds = Number(
+      this.configService.getOrThrow('BCRYPT_SALT_ROUNDS'),
+    );
+
+    const hashedPassword = await bcrypt.hash(newPassword.trim(), hashRounds);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        data: {
+          password: hashedPassword,
+        },
+        where: {
+          id: record.userId,
+        },
+      });
+
+      await tx.passwordResetToken.delete({
+        where: {
+          id: record.id,
+        },
+      });
+
+      // revoke old sessions
+      const now = new Date();
+
+      await tx.refreshToken.updateMany({
+        where: {
+          userId: record.userId,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          updatedAt: now,
+        },
+      });
+    });
+
+    return {
+      message: 'Password reset successfully',
+    };
   }
 }

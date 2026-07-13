@@ -20,6 +20,7 @@ model User {
   hobby  String? @default("Not provided")
   password  String
   refreshToken  RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -38,4 +39,20 @@ model RefreshToken{
 
   @@index([userId]) // index for userId
   @@map("RefreshTokens") // table name
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+
+  tokenHash String   @unique
+
+  userId    String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+@@index([userId])
+  @@map("PasswordResetTokens") // table name
+
 }
